@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Ghost, Zap, Trophy, SkipForward, RefreshCw, Play, Pause, AlertTriangle, Settings, User, Plus, Trash2, Volume2, VolumeX, Edit, Clock, Shield, Sparkles, BrainCircuit, Upload, LogOut, Maximize2, Minimize2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { QUESTIONS as DEFAULT_QUESTIONS, MAZE_GRID } from './constants';
+import { QUESTIONS as DEFAULT_QUESTIONS, MAZE_LAYOUTS } from './constants';
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- Types ---
@@ -56,8 +56,10 @@ const ENEMY_VISUALS = {
 class SoundManager {
   ctx: AudioContext | null = null;
   bgmOscillators: OscillatorNode[] = [];
+  bgmGain: GainNode | null = null;
   isMuted: boolean = false;
   typingInterval: number | null = null;
+  bgmInterval: number | null = null;
 
   constructor() {
     try {
@@ -207,6 +209,35 @@ class SoundManager {
     utterance.pitch = 1.0;
     window.speechSynthesis.speak(utterance);
   }
+
+  startBGM() {
+    if (this.isMuted || !this.ctx || this.bgmInterval) return;
+    this.bgmGain = this.ctx.createGain();
+    this.bgmGain.gain.setValueAtTime(0.02, this.ctx.currentTime);
+    this.bgmGain.connect(this.ctx.destination);
+
+    const notes = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00]; // C4 to A4
+    let step = 0;
+
+    // @ts-ignore
+    this.bgmInterval = setInterval(() => {
+        if (this.isMuted || !this.ctx || !this.bgmGain) return;
+        const osc = this.ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(notes[step % notes.length], this.ctx.currentTime);
+        osc.connect(this.bgmGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.2);
+        step++;
+    }, 250);
+  }
+
+  stopBGM() {
+    if (this.bgmInterval) {
+        clearInterval(this.bgmInterval);
+        this.bgmInterval = null;
+    }
+  }
 }
 
 const soundManager = new SoundManager();
@@ -238,6 +269,7 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(60);
   const [isWaitingForNextRound, setIsWaitingForNextRound] = useState(false);
   const [preRoundCountdown, setPreRoundCountdown] = useState<number | null>(null);
+  const [comboPopup, setComboPopup] = useState<{ pId: number; streak: number } | null>(null);
 
   // Setup State
   const [p1Avatar, setP1Avatar] = useState(AVATARS[2]); // Dog
@@ -356,7 +388,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>(null);
-  const gridRef = useRef(MAZE_GRID);
+  const gridRef = useRef(MAZE_LAYOUTS[0]);
   const questionTimerRef = useRef(60);
   const enemiesFrozenTimerRef = useRef(0);
   const lastTimeRef = useRef<number>(0);
@@ -384,6 +416,7 @@ export default function App() {
   // --- Initialization ---
   const startGame = () => {
     soundManager.resume();
+    soundManager.startBGM();
     setGameState('playing');
     lastTimeRef.current = performance.now();
     setScores({ p1: 0, p2: 0 });
@@ -405,6 +438,10 @@ export default function App() {
     questionTimerRef.current = questionTimeLimit;
     setTimeLeft(questionTimeLimit);
     
+    // Randomize Maze Layout
+    const randomLayout = MAZE_LAYOUTS[Math.floor(Math.random() * MAZE_LAYOUTS.length)];
+    gridRef.current = randomLayout;
+
     // Spawn Answers (A, B, C, D)
     const options = ['A', 'B', 'C', 'D'];
     const newAnswers: Entity[] = [];
@@ -447,6 +484,9 @@ export default function App() {
     answersRef.current = newAnswers;
 
     // --- Spawn Enemies (Logic Update) ---
+    const roundSpeedMultiplier = 1 + (qIndex * 0.05); // 5% faster each round
+    const currentRoundEnemySpeed = enemySpeed * roundSpeedMultiplier;
+    
     // <= 8 enemies: 1 chaser
     // > 8 enemies: 3 chasers
     let numChasers = 0;
@@ -611,7 +651,7 @@ export default function App() {
         enemiesFrozenTimerRef.current -= dt;
     } else {
         ghostsRef.current.forEach(g => {
-          let currentSpeed = enemySpeed;
+          let currentSpeed = enemySpeed * (1 + (currentQuestionIndex * 0.05));
           if (g.fleeTimer && g.fleeTimer > 0) {
               currentSpeed *= 1.8; // Move faster when fleeing
           }
@@ -852,6 +892,10 @@ export default function App() {
           p.score += points;
           setScores(prev => ({ ...prev, [p.id === 1 ? 'p1' : 'p2']: p.score }));
           setFeedback({ msg: `P${p.id} Benar! +${points} Poin${streakBonus}`, type: 'success' });
+          if (p.streak > 1) {
+            setComboPopup({ pId: p.id, streak: p.streak });
+            setTimeout(() => setComboPopup(null), 1500);
+          }
           soundManager.playCorrect();
           confetti({
             particleCount: 100,
@@ -911,6 +955,7 @@ export default function App() {
   };
 
   const endGame = () => {
+    soundManager.stopBGM();
     setGameState('finished');
     const p1Score = playersRef.current[0].score;
     const p2Score = playersRef.current[1].score;
@@ -1717,7 +1762,7 @@ export default function App() {
               {/* Timer & Subject Header */}
               <div className="flex items-center gap-3 mb-1">
                 <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                  Soal {currentQuestionIndex + 1}/{questions.length}
+                  Soal {currentQuestionIndex + 1}/{questions.length} • {questions[currentQuestionIndex]?.subject}
                 </span>
                 <span className={`px-4 py-1.5 rounded-full font-mono font-bold text-3xl flex items-center gap-2 shadow-inner ${timeLeft <= 10 ? 'bg-red-500/30 text-red-400 animate-pulse border-2 border-red-500/50' : 'bg-slate-700 text-slate-100 border-2 border-slate-600'}`}>
                   <Clock size={24} /> {timeLeft}s
@@ -1790,6 +1835,22 @@ export default function App() {
                 }`}
               >
                 {feedback.msg}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Combo Popup */}
+          <AnimatePresence>
+            {comboPopup && (
+              <motion.div
+                initial={{ scale: 0, opacity: 0, y: 50 }}
+                animate={{ scale: [1.2, 1], opacity: 1, y: 0 }}
+                exit={{ scale: 2, opacity: 0 }}
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
+              >
+                <div className={`text-6xl font-black italic tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.8)] ${comboPopup.pId === 1 ? 'text-blue-500' : 'text-red-500'}`}>
+                  COMBO {comboPopup.streak}x!
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
