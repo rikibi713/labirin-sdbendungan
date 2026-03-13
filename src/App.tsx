@@ -371,6 +371,16 @@ export default function App() {
   const answersRef = useRef<Entity[]>([]);
   const inputState = useRef<{ [key: string]: boolean }>({});
   
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    document.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, []);
+
   // --- Initialization ---
   const startGame = () => {
     soundManager.resume();
@@ -1311,7 +1321,7 @@ export default function App() {
 
   // --- Render ---
   return (
-    <div className="w-full min-h-[100dvh] bg-slate-900 text-white flex flex-col font-sans">
+    <div className={`w-full min-h-[100dvh] bg-slate-900 text-white flex flex-col font-sans select-none ${gameState === 'playing' ? 'touch-none' : ''}`} style={{ WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}>
       
       {/* Splash Screen */}
       <AnimatePresence>
@@ -1789,7 +1799,7 @@ export default function App() {
             <canvas 
               ref={canvasRef}
               className="block bg-slate-800 shadow-2xl rounded-lg"
-              style={{ touchAction: 'pan-x pan-y' }}
+              style={{ touchAction: 'none' }}
             />
 
             {/* Waiting for Next Round Overlay */}
