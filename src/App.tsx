@@ -272,6 +272,7 @@ export default function App() {
   }, []);
   const [aiTopic, setAiTopic] = useState('');
   const [aiQuestionCount, setAiQuestionCount] = useState(10);
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
   
   // Custom Questions State
   const [questions, setQuestions] = useState<Question[]>(DEFAULT_QUESTIONS);
@@ -284,19 +285,22 @@ export default function App() {
 
   // --- AI Question Generation ---
   const generateQuestions = async () => {
-    if (!process.env.GEMINI_API_KEY) {
-      alert("API Key tidak ditemukan! Pastikan GEMINI_API_KEY sudah diset.");
+    const apiKey = process.env.GEMINI_API_KEY || customApiKey;
+    
+    if (!apiKey) {
+      setFeedback({ msg: "API Key tidak ditemukan! Masukkan API Key di Editor Soal.", type: "error" });
+      setTimeout(() => setFeedback(null), 3000);
       return;
     }
     
     setIsGenerating(true);
     soundManager.playTyping();
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       const topic = aiTopic.trim() || "Pengetahuan Umum SD";
       
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         contents: `Buatlah ${aiQuestionCount} soal pilihan ganda untuk anak SD tentang "${topic}" dalam Bahasa Indonesia.
         Format JSON array of objects:
         [
@@ -1581,6 +1585,27 @@ export default function App() {
                 <h3 className="text-indigo-300 font-semibold mb-2 flex items-center gap-2">
                 <Sparkles className="w-4 h-4" /> Buat Soal Otomatis (AI)
                 </h3>
+                
+                {/* API Key Input (Visible if not in environment) */}
+                {!process.env.GEMINI_API_KEY && (
+                  <div className="mb-4">
+                    <label className="block text-xs text-indigo-300 font-bold mb-1">Gemini API Key (untuk Deploy GitHub)</label>
+                    <input 
+                      type="password" 
+                      placeholder="Masukkan Gemini API Key Anda..." 
+                      className="w-full bg-black/30 border border-indigo-500/50 rounded-lg px-4 py-2 text-white placeholder-indigo-400/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={customApiKey}
+                      onChange={(e) => {
+                        setCustomApiKey(e.target.value);
+                        localStorage.setItem('gemini_api_key', e.target.value);
+                      }}
+                    />
+                    <p className="text-[10px] text-indigo-400/70 mt-1">
+                      Dapatkan kunci di <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="underline">Google AI Studio</a>. Kunci disimpan di browser Anda.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex flex-col md:flex-row gap-2">
                   <input 
                       type="text" 
